@@ -1,10 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLiveQuery } from 'dexie-react-hooks';
-import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid
-} from 'recharts';
 import { db } from '../../db/schema.js';
 import { computeMomentumScore, getStreak, getHeatmapData, getVelocityData } from '../../db/queries/analytics.js';
 import { getSessionStats } from '../../db/queries/sessions.js';
@@ -14,22 +10,173 @@ import { getWeeklyInsight, askXecute, generateWeeklyReviewSummary } from '../../
 import { createWeeklyReview } from '../../db/queries/weeklyReviews.js';
 import { format, isToday } from 'date-fns';
 import ProgressRing from '../../components/common/ProgressRing.jsx';
+import PriorityBadge from '../../components/common/PriorityBadge.jsx';
 
 const AMBER = '#F5A623';
 const CYAN = '#00C9FF';
 
-// ─── Custom Tooltip ────────────────────────────────────────────────────────────
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
+// ─── Custom SVG Area Chart Component ──────────────────────────────────────────
+function CustomSVGAreaChart({ data }) {
+  const [hoveredPoint, setHoveredPoint] = useState(null);
+
+  if (!data || data.length === 0) return null;
+
+  const maxVal = Math.max(...data.map(d => d.completed), 1);
+  const paddingLeft = 25;
+  const paddingRight = 10;
+  const paddingTop = 10;
+  const paddingBottom = 20;
+
+  const width = 350;
+  const height = 90;
+
+  const chartWidth = width - paddingLeft - paddingRight;
+  const chartHeight = height - paddingTop - paddingBottom;
+
+  const points = data.map((d, index) => {
+    const x = paddingLeft + (index / Math.max(data.length - 1, 1)) * chartWidth;
+    const y = paddingTop + chartHeight - (d.completed / maxVal) * chartHeight;
+    return { x, y, data: d };
+  });
+
+  let linePath = '';
+  let areaPath = '';
+
+  if (points.length > 0) {
+    linePath = `M ${points[0].x} ${points[0].y} ` + points.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ');
+    areaPath = `${linePath} L ${points[points.length - 1].x} ${paddingTop + chartHeight} L ${points[0].x} ${paddingTop + chartHeight} Z`;
+  }
+
+  const showTooltip = hoveredPoint !== null;
+
   return (
-    <div className="glass-dark" style={{ borderRadius: 10, padding: '8px 12px', fontSize: 12 }}>
-      <p className="font-dm" style={{ color: '#8B90A0', marginBottom: 4 }}>{label}</p>
-      {payload.map((p, i) => (
-        <p key={i} className="font-dm font-medium" style={{ color: p.color || AMBER }}>{p.name}: {p.value}</p>
-      ))}
+    <div style={{ position: 'relative', width: '100%', height: 110 }}>
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="100%" style={{ overflow: 'visible' }}>
+        <defs>
+          <linearGradient id="customAreaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={AMBER} stopOpacity={0.25} />
+            <stop offset="100%" stopColor={AMBER} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+
+        {[0, 0.5, 1].map((ratio, idx) => {
+          const y = paddingTop + chartHeight * ratio;
+          const val = Math.round(maxVal * (1 - ratio));
+          return (
+            <g key={idx}>
+              <line 
+                x1={paddingLeft} 
+                y1={y} 
+                x2={width - paddingRight} 
+                y2={y} 
+                stroke="rgba(255, 255, 255, 0.05)" 
+                strokeDasharray="3 3" 
+              />
+              <text 
+                x={paddingLeft - 6} 
+                y={y + 3} 
+                fill="#4B5060" 
+                fontSize={8} 
+                textAnchor="end"
+                fontFamily="DM Sans, system-ui, sans-serif"
+              >
+                {val}
+              </text>
+            </g>
+          );
+        })}
+
+        {areaPath && (
+          <path 
+            d={areaPath} 
+            fill="url(#customAreaGrad)" 
+          />
+        )}
+
+        {linePath && (
+          <path 
+            d={linePath} 
+            fill="none" 
+            stroke={AMBER} 
+            strokeWidth={2} 
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        )}
+
+        {points.map((p, index) => {
+          const isHovered = hoveredPoint?.index === index;
+          return (
+            <g key={index}>
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={10}
+                fill="transparent"
+                style={{ cursor: 'pointer' }}
+                onMouseEnter={() => setHoveredPoint({ ...p.data, x: p.x, y: p.y, index })}
+                onMouseLeave={() => setHoveredPoint(null)}
+              />
+              {(isHovered || points.length <= 7) && (
+                <circle
+                  cx={p.x}
+                  cy={p.y}
+                  r={isHovered ? 4.5 : 2}
+                  fill={AMBER}
+                  stroke={isHovered ? '#050608' : 'none'}
+                  strokeWidth={isHovered ? 1.5 : 0}
+                  style={{ pointerEvents: 'none', transition: 'all 0.1s ease' }}
+                />
+              )}
+            </g>
+          );
+        })}
+
+        {points.filter((_, idx) => {
+          if (points.length > 7) {
+            return idx % 6 === 0 || idx === points.length - 1;
+          }
+          return true;
+        }).map((p, idx) => (
+          <text
+            key={idx}
+            x={p.x}
+            y={height - 2}
+            fill="#4B5060"
+            fontSize={8}
+            textAnchor="middle"
+            fontFamily="DM Sans, system-ui, sans-serif"
+          >
+            {p.data.date}
+          </text>
+        ))}
+      </svg>
+
+      {showTooltip && (
+        <div 
+          className="glass-dark" 
+          style={{ 
+            position: 'absolute', 
+            left: `${(hoveredPoint.x / width) * 100}%`,
+            top: `${(hoveredPoint.y / height) * 100 - 48}%`,
+            transform: 'translateX(-50%)',
+            borderRadius: 10, 
+            padding: '6px 10px', 
+            fontSize: 11,
+            zIndex: 10,
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap',
+            border: '1px solid rgba(245,166,35,0.2)',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)'
+          }}
+        >
+          <p className="font-dm" style={{ color: '#8B90A0', marginBottom: 2 }}>{hoveredPoint.date}</p>
+          <p className="font-dm font-semibold" style={{ color: AMBER }}>Completed: {hoveredPoint.completed}</p>
+        </div>
+      )}
     </div>
   );
-};
+}
 
 // ─── Momentum Score ────────────────────────────────────────────────────────────
 function MomentumCard({ score }) {
@@ -817,19 +964,7 @@ function SessionAnalytics() {
 
       {velocityData.length > 0 && (
         <div style={{ height: 110, marginTop: 8, paddingRight: 8 }}>
-          <ResponsiveContainer width="100%" height={110}>
-            <AreaChart data={velocityData}>
-              <defs>
-                <linearGradient id="velocityGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={AMBER} stopOpacity={0.25} />
-                  <stop offset="95%" stopColor={AMBER} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="date" tick={{ fill: '#4B5060', fontSize: 10 }} axisLine={false} tickLine={false} />
-              <Tooltip content={<CustomTooltip />} />
-              <Area type="monotone" dataKey="completed" name="Tasks" stroke={AMBER} fill="url(#velocityGrad)" strokeWidth={2.5} dot={{ r: 0, fill: AMBER }} activeDot={{ r: 4, strokeWidth: 0, fill: AMBER }} />
-            </AreaChart>
-          </ResponsiveContainer>
+          <CustomSVGAreaChart data={velocityData} />
         </div>
       )}
     </div>

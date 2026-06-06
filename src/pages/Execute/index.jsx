@@ -31,7 +31,7 @@ const SOUNDS = [
   { id: 'whitenoise', label: 'White Noise', icon: '📡' },
 ];
 
-function CircularTimer({ progress, timeDisplay, isRunning }) {
+function CircularTimer({ progress, timeDisplay, isRunning, isPaused }) {
   const size = 240;
   const strokeWidth = 8;
   const radius = (size - strokeWidth) / 2;
@@ -41,7 +41,7 @@ function CircularTimer({ progress, timeDisplay, isRunning }) {
   return (
     <div style={{ position: 'relative', width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* Outer pulse ring */}
-      {isRunning && (
+      {isRunning && !isPaused && (
         <div
           className="timer-pulse-ring"
           style={{
@@ -65,22 +65,38 @@ function CircularTimer({ progress, timeDisplay, isRunning }) {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          boxShadow: isRunning ? '0 0 25px rgba(245,166,35,0.12), inset 0 1px 0 rgba(255,255,255,0.05)' : '0 8px 32px 0 rgba(0,0,0,0.37)',
+          boxShadow: isRunning && !isPaused ? '0 0 25px rgba(245,166,35,0.12), inset 0 1px 0 rgba(255,255,255,0.05)' : '0 8px 32px 0 rgba(0,0,0,0.37)',
           zIndex: 1,
         }}
       >
-        <div
-          className={`font-syne font-black`}
+        <motion.div
+          className="font-syne font-black"
+          animate={isPaused ? {
+            opacity: [1, 0.25, 1],
+            textShadow: [
+              '0 0 12px rgba(245,166,35,0.25)',
+              '0 0 24px rgba(245,166,35,0.75)',
+              '0 0 12px rgba(245,166,35,0.25)'
+            ]
+          } : {
+            opacity: 1,
+            textShadow: isRunning ? '0 0 12px rgba(245,166,35,0.50)' : 'none'
+          }}
+          transition={isPaused ? {
+            duration: 2.2,
+            repeat: Infinity,
+            ease: 'easeInOut'
+          } : undefined}
           style={{
             fontSize: 48,
-            color: '#F0F2F7',
+            color: isPaused ? '#F5A623' : '#F0F2F7',
             letterSpacing: '-0.03em',
             lineHeight: 1,
-            textShadow: isRunning ? '0 0 12px rgba(245,166,35,0.50)' : 'none',
+            transition: 'color 0.4s ease'
           }}
         >
           {timeDisplay}
-        </div>
+        </motion.div>
         <div className="font-dm" style={{ color: '#8B90A0', fontSize: 11, marginTop: 4, letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: 500 }}>
           remaining
         </div>
@@ -139,6 +155,8 @@ export default function ExecuteTab() {
     timerIsCustomInterval: isCustomInterval,
     timerBreaksTaken: breaksTaken,
     timerShowNotes: showNotes,
+    timerWorkSecondsLeftBeforeBreak,
+    timerOriginalWorkTotalSeconds,
 
     setTimerSecondsLeft: setSecondsLeft,
     setTimerTotalSeconds: setTotalSeconds,
@@ -162,6 +180,8 @@ export default function ExecuteTab() {
     setTimerIsCustomInterval: setIsCustomInterval,
     setTimerBreaksTaken: setBreaksTaken,
     setTimerShowNotes: setShowNotes,
+    setTimerWorkSecondsLeftBeforeBreak,
+    setTimerOriginalWorkTotalSeconds,
 
     startGlobalTimer: start,
     pauseGlobalTimer: pause,
@@ -261,7 +281,10 @@ export default function ExecuteTab() {
   const workSeconds = workMinutes * 60;
   const calculatedBreakAfterSeconds = breakInterval > 0 ? breakInterval * 60 : null;
 
-  const progress = totalSeconds > 0 ? ((totalSeconds - secondsLeft) / totalSeconds) * 100 : 0;
+  const originalWorkTotal = timerOriginalWorkTotalSeconds || totalSeconds;
+  const progress = sessionState === 'break'
+    ? (totalSeconds > 0 ? ((totalSeconds - secondsLeft) / totalSeconds) * 100 : 0)
+    : (originalWorkTotal > 0 ? ((originalWorkTotal - secondsLeft) / originalWorkTotal) * 100 : 0);
 
   const formatTime = (secs) => {
     const h = Math.floor(secs / 3600);
@@ -272,14 +295,18 @@ export default function ExecuteTab() {
   };
 
   const triggerBreak = (durationInMinutes) => {
+    // Save remaining work seconds before starting break
+    const currentSecondsLeft = useAppStore.getState().timerSecondsLeft;
+    useAppStore.getState().setTimerWorkSecondsLeftBeforeBreak(currentSecondsLeft);
     setSessionState('break');
     setBreakMinutes(durationInMinutes);
     start(durationInMinutes * 60, 0); // start break timer globally
   };
 
   const handleSkipBreakInSession = () => {
+    const savedWorkSeconds = useAppStore.getState().timerWorkSecondsLeftBeforeBreak || workSeconds;
     setSessionState('active');
-    start(workSeconds, calculatedBreakAfterSeconds);
+    start(savedWorkSeconds, 0); // resume task timer with exact remaining seconds
   };
 
   // Synchronize Web Audio Synth with timer running and pause state
@@ -301,19 +328,19 @@ export default function ExecuteTab() {
 
     setExtendedSeconds(0); // Reset session extension
 
-    const breaksScheduledCount = breakInterval > 0 ? Math.floor(workMinutes / breakInterval) : 0;
-
     const id = await startSession({
       taskId: selectedTask?.id,
       planId: selectedTask?.planId,
-      breaksScheduled: breaksScheduledCount,
+      breaksScheduled: 0,
       progressBefore: selectedTask?.progress || 0,
       intentionText: intention,
       ambientSound,
     });
     setSessionId(id);
     setSessionState('active');
-    start(workSeconds, calculatedBreakAfterSeconds);
+    setTimerWorkSecondsLeftBeforeBreak(0);
+    setTimerOriginalWorkTotalSeconds(workSeconds);
+    start(workSeconds, 0);
   };
 
   const handleEndSession = () => {
@@ -736,104 +763,6 @@ export default function ExecuteTab() {
                 {workMinutes} minutes
               </p>
 
-              {/* Break */}
-              <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                <div style={{ flex: 1 }}>
-                  <p className="font-dm" style={{ color: '#8B90A0', fontSize: 13, marginBottom: 8 }}>Break</p>
-                  {!isCustomBreak ? (
-                    <select
-                      className="input"
-                      style={{ padding: '10px 12px', fontSize: 13 }}
-                      value={breakMinutes}
-                      onChange={e => {
-                        const val = e.target.value;
-                        if (val === 'custom') {
-                          setIsCustomBreak(true);
-                          setBreakMinutes(10); // default custom
-                        } else {
-                          setBreakMinutes(Number(val));
-                        }
-                      }}
-                    >
-                      {[5, 10, 15, 20].map(v => <option key={v} value={v}>{v} min</option>)}
-                      <option value="custom">Custom...</option>
-                    </select>
-                  ) : (
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <input
-                        type="number"
-                        className="input"
-                        placeholder="min"
-                        style={{ padding: '8px 10px', fontSize: 13, flex: 1 }}
-                        value={breakMinutes}
-                        min={1}
-                        onChange={e => setBreakMinutes(Number(e.target.value))}
-                      />
-                      <button
-                        className="btn btn-ghost"
-                        style={{ width: 34, height: 38, padding: 0, fontSize: 12, flexShrink: 0 }}
-                        onClick={() => {
-                          setIsCustomBreak(false);
-                          setBreakMinutes(10);
-                        }}
-                        title="Back to presets"
-                      >
-                        ↺
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <p className="font-dm" style={{ color: '#8B90A0', fontSize: 13, marginBottom: 8 }}>Every</p>
-                  {!isCustomInterval ? (
-                    <select
-                      className="input"
-                      style={{ padding: '10px 12px', fontSize: 13 }}
-                      value={breakInterval}
-                      onChange={e => {
-                        const val = e.target.value;
-                        if (val === 'custom') {
-                          setIsCustomInterval(true);
-                          setBreakInterval(25); // default custom
-                        } else {
-                          setBreakInterval(Number(val));
-                        }
-                      }}
-                    >
-                      <option value={15}>15 min</option>
-                      <option value={25}>25 min</option>
-                      <option value={40}>40 min</option>
-                      <option value={60}>60 min</option>
-                      <option value={0}>Never</option>
-                      <option value="custom">Custom...</option>
-                    </select>
-                  ) : (
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <input
-                        type="number"
-                        className="input"
-                        placeholder="min"
-                        style={{ padding: '8px 10px', fontSize: 13, flex: 1 }}
-                        value={breakInterval}
-                        min={1}
-                        onChange={e => setBreakInterval(Number(e.target.value))}
-                      />
-                      <button
-                        className="btn btn-ghost"
-                        style={{ width: 34, height: 38, padding: 0, fontSize: 12, flexShrink: 0 }}
-                        onClick={() => {
-                          setIsCustomInterval(false);
-                          setBreakInterval(25);
-                        }}
-                        title="Back to presets"
-                      >
-                        ↺
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
               {/* Intention */}
               <p className="font-dm" style={{ color: '#8B90A0', fontSize: 13, marginBottom: 8 }}>Intention</p>
               <input
@@ -924,7 +853,8 @@ export default function ExecuteTab() {
         <CircularTimer
           progress={progress}
           timeDisplay={formatTime(secondsLeft)}
-          isRunning={isRunning && !isPaused}
+          isRunning={isRunning}
+          isPaused={isPaused}
         />
 
         {/* Sound Selector */}
@@ -1096,7 +1026,7 @@ export default function ExecuteTab() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                style={{ zIndex: 45 }}
+                style={{ position: 'fixed', inset: 0, zIndex: 140, background: 'rgba(7,8,10,0.85)', backdropFilter: 'blur(10px)' }}
               />
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
@@ -1105,17 +1035,20 @@ export default function ExecuteTab() {
                 transition={{ type: 'spring', stiffness: 350, damping: 28 }}
                 className="glass-dark"
                 style={{
-                  position: 'absolute',
+                  position: 'fixed',
                   top: '50%',
-                  left: 20,
-                  right: 20,
-                  transform: 'translateY(-50%)',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
                   borderRadius: 24,
                   padding: 28,
-                  zIndex: 50,
+                  zIndex: 150,
                   textAlign: 'center',
                   border: '1px solid rgba(245,166,35,0.15)',
-                  boxShadow: '0 12px 40px rgba(0,0,0,0.5), 0 0 30px rgba(245,166,35,0.1)',
+                  boxShadow: '0 20px 50px rgba(0,0,0,0.6), 0 0 30px rgba(245,166,35,0.1)',
+                  width: 'calc(100% - 40px)',
+                  maxWidth: 400,
+                  maxHeight: '85vh',
+                  overflowY: 'auto',
                 }}
               >
                 <p style={{ fontSize: 36, marginBottom: 12, filter: 'drop-shadow(0 0 10px rgba(16,185,129,0.3))' }}>🌿</p>
@@ -1145,7 +1078,7 @@ export default function ExecuteTab() {
                   setShowExitPopup(false);
                   setPendingTab(null);
                 }}
-                style={{ zIndex: 90 }}
+                style={{ position: 'fixed', inset: 0, zIndex: 140, background: 'rgba(7,8,10,0.85)', backdropFilter: 'blur(10px)' }}
               />
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
@@ -1154,17 +1087,20 @@ export default function ExecuteTab() {
                 transition={{ type: 'spring', stiffness: 350, damping: 28 }}
                 className="glass-dark"
                 style={{
-                  position: 'absolute',
+                  position: 'fixed',
                   top: '50%',
-                  left: 20,
-                  right: 20,
-                  transform: 'translateY(-50%)',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
                   borderRadius: 24,
                   padding: 28,
-                  zIndex: 100,
+                  zIndex: 150,
                   textAlign: 'center',
                   border: '1px solid rgba(245,166,35,0.15)',
-                  boxShadow: '0 12px 40px rgba(0,0,0,0.5), 0 0 30px rgba(245,166,35,0.1)',
+                  boxShadow: '0 20px 50px rgba(0,0,0,0.6), 0 0 30px rgba(245,166,35,0.1)',
+                  width: 'calc(100% - 40px)',
+                  maxWidth: 400,
+                  maxHeight: '85vh',
+                  overflowY: 'auto',
                 }}
               >
                 <p style={{ fontSize: 36, marginBottom: 12 }}>⚠️</p>

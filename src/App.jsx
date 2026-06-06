@@ -85,14 +85,8 @@ export default function App() {
           sendNotification('Break over!', 'Time to get back to work.');
           setSessionState('active');
           
-          const autoStart = useAppStore.getState().settings?.autoStartNextSession;
-          if (autoStart) {
-            const workMins = useAppStore.getState().timerWorkMinutes || 45;
-            const breakInt = useAppStore.getState().timerBreakInterval || 25;
-            useAppStore.getState().startGlobalTimer(workMins * 60, breakInt * 60);
-          } else {
-            useAppStore.getState().resetGlobalTimer();
-          }
+          const savedWorkSeconds = useAppStore.getState().timerWorkSecondsLeftBeforeBreak || (useAppStore.getState().timerWorkMinutes * 60);
+          useAppStore.getState().startGlobalTimer(savedWorkSeconds, 0);
         }
       }
 

@@ -44,6 +44,8 @@ export const useAppStore = create((set, get) => ({
   timerIsCustomInterval: false,
   timerBreaksTaken: 0,
   timerShowNotes: false,
+  timerWorkSecondsLeftBeforeBreak: 0,
+  timerOriginalWorkTotalSeconds: 0,
 
   setTimerSecondsLeft: (val) => set({ timerSecondsLeft: val }),
   setTimerTotalSeconds: (val) => set({ timerTotalSeconds: val }),
@@ -67,6 +69,8 @@ export const useAppStore = create((set, get) => ({
   setTimerIsCustomInterval: (val) => set({ timerIsCustomInterval: val }),
   setTimerBreaksTaken: (val) => set({ timerBreaksTaken: val }),
   setTimerShowNotes: (val) => set({ timerShowNotes: val }),
+  setTimerWorkSecondsLeftBeforeBreak: (val) => set({ timerWorkSecondsLeftBeforeBreak: val }),
+  setTimerOriginalWorkTotalSeconds: (val) => set({ timerOriginalWorkTotalSeconds: val }),
 
   startGlobalTimer: (totalSeconds, breakAfterSeconds) => {
     set({
