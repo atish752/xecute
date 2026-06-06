@@ -6,7 +6,6 @@ import { db } from '../../db/schema.js';
 import { updateTaskProgress } from '../../db/queries/tasks.js';
 import { startSession, endSession, updateSessionNotes } from '../../db/queries/sessions.js';
 import { checkAndUnlockMilestones } from '../../db/queries/milestones.js';
-import { useTimer } from '../../hooks/useTimer.js';
 import { useNotifications } from '../../hooks/useNotifications.js';
 import { getFocusCoach } from '../../ai/gemini.js';
 import { generateCompletionMessage } from '../../ai/claude.js';
@@ -116,7 +115,59 @@ export default function ExecuteTab() {
     settings,
     pendingTab, setPendingTab,
     showExitPopup, setShowExitPopup,
-    setActiveTab
+    setActiveTab,
+
+    timerSecondsLeft: secondsLeft,
+    timerTotalSeconds: totalSeconds,
+    timerIsRunning: isRunning,
+    timerIsPaused: isPaused,
+    timerTargetTime: targetTime,
+    timerPausedTimeLeft: pausedTimeLeft,
+    timerBreaksDone: breaksDone,
+    timerBreakAfterSeconds: breakAfterSeconds,
+    timerShowBreakOverlay: showBreakOverlay,
+    timerIntention: intention,
+    timerAmbientSound: ambientSound,
+    timerSessionNotes: sessionNotes,
+    timerSessionId: sessionId,
+    timerProgressSlider: progressSlider,
+    timerExtendedSeconds: extendedSeconds,
+    timerWorkMinutes: workMinutes,
+    timerBreakMinutes: breakMinutes,
+    timerBreakInterval: breakInterval,
+    timerIsCustomBreak: isCustomBreak,
+    timerIsCustomInterval: isCustomInterval,
+    timerBreaksTaken: breaksTaken,
+    timerShowNotes: showNotes,
+
+    setTimerSecondsLeft: setSecondsLeft,
+    setTimerTotalSeconds: setTotalSeconds,
+    setTimerIsRunning: setIsRunning,
+    setTimerIsPaused: setIsPaused,
+    setTimerTargetTime: setTargetTime,
+    setTimerPausedTimeLeft: setPausedTimeLeft,
+    setTimerBreaksDone: setBreaksDone,
+    setTimerBreakAfterSeconds: setBreakAfterSeconds,
+    setTimerShowBreakOverlay: setShowBreakOverlay,
+    setTimerIntention: setIntention,
+    setTimerAmbientSound: setAmbientSound,
+    setTimerSessionNotes: setSessionNotes,
+    setTimerSessionId: setSessionId,
+    setTimerProgressSlider: setProgressSlider,
+    setTimerExtendedSeconds: setExtendedSeconds,
+    setTimerWorkMinutes: setWorkMinutes,
+    setTimerBreakMinutes: setBreakMinutes,
+    setTimerBreakInterval: setBreakInterval,
+    setTimerIsCustomBreak: setIsCustomBreak,
+    setTimerIsCustomInterval: setIsCustomInterval,
+    setTimerBreaksTaken: setBreaksTaken,
+    setTimerShowNotes: setShowNotes,
+
+    startGlobalTimer: start,
+    pauseGlobalTimer: pause,
+    resumeGlobalTimer: resume,
+    resetGlobalTimer: reset,
+    extendGlobalTimer: extend
   } = useAppStore();
   const { sendNotification, requestPermission } = useNotifications();
 
@@ -151,7 +202,8 @@ export default function ExecuteTab() {
   const tasks = useLiveQuery(async () => {
     if (!selectedPlanId) return [];
     if (selectedPlanId === 'today-tasks') {
-      const allStandalone = await db.tasks.filter(t => !t.planId).toArray();
+      const allTasksArr = await db.tasks.toArray();
+      const allStandalone = allTasksArr.filter(t => !t.planId);
       const todayStr = new Date().toISOString().split('T')[0];
       return allStandalone.filter(t => {
         if (t.taskType === 'daily') return true;
@@ -166,32 +218,12 @@ export default function ExecuteTab() {
   }, [selectedPlanId], []);
 
 
-  // Session setup state
-  const [workMinutes, setWorkMinutes] = useState(45);
-  const [breakMinutes, setBreakMinutes] = useState(10);
-  const [breakInterval, setBreakInterval] = useState(25);
-  const [isCustomBreak, setIsCustomBreak] = useState(false);
-  const [isCustomInterval, setIsCustomInterval] = useState(false);
-  const [intention, setIntention] = useState('');
-  const [ambientSound, setAmbientSound] = useState('silence');
+  // Session-specific UI states
   const [focusCoach, setFocusCoach] = useState('');
   const [loadingCoach, setLoadingCoach] = useState(false);
-
-  // Session tracking
-  const [sessionId, setSessionId] = useState(null);
-  const [showBreakOverlay, setShowBreakOverlay] = useState(false);
-  const [breaksTaken, setBreaksTaken] = useState(0);
-  const [sessionNotes, setSessionNotes] = useState('');
-  const [showNotes, setShowNotes] = useState(false);
-
-  // Value-add states
-  const [extendedSeconds, setExtendedSeconds] = useState(0);
   const [brainDumpText, setBrainDumpText] = useState('');
   const [brainDumpLogged, setBrainDumpLogged] = useState(false);
   const [customBreakDuration, setCustomBreakDuration] = useState(10);
-
-  // Completion
-  const [progressSlider, setProgressSlider] = useState(50);
   const [completionMsg, setCompletionMsg] = useState('');
 
   // Page Reload / Exit protection
@@ -226,48 +258,28 @@ export default function ExecuteTab() {
     }
   }, [settings]);
 
-  const timerPauseRef = useRef(null);
   const workSeconds = workMinutes * 60;
-  const breakAfterSeconds = breakInterval > 0 ? breakInterval * 60 : null;
+  const calculatedBreakAfterSeconds = breakInterval > 0 ? breakInterval * 60 : null;
 
-  const { secondsLeft, isRunning, isPaused, progress, start, pause, resume, reset, formatTime } = useTimer({
-    totalSeconds: sessionState === 'active' ? workSeconds + extendedSeconds : breakMinutes * 60,
-    onComplete: () => {
-      if (sessionState === 'active') {
-        sendNotification('Session Complete! 🎉', 'Your focus session is done. Great work!');
-        setSessionState('complete');
-      } else if (sessionState === 'break') {
-        sendNotification('Break over!', 'Time to get back to work.');
-        setSessionState('active');
-        reset();
-      }
-    },
-    onBreak: () => {
-      sendNotification('Break time! 🌿', 'Take a short break. You deserve it.');
-      timerPauseRef.current?.(); // Automatically pause when break reminder fires
-      setShowBreakOverlay(true);
-    },
-    breakAfterSeconds,
-  });
+  const progress = totalSeconds > 0 ? ((totalSeconds - secondsLeft) / totalSeconds) * 100 : 0;
 
-  // Keep the ref to pause function updated
-  timerPauseRef.current = pause;
-
-  const resetRef = useRef(reset);
-  const startRef = useRef(start);
-
-  useEffect(() => {
-    resetRef.current = reset;
-    startRef.current = start;
-  }, [reset, start]);
+  const formatTime = (secs) => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
 
   const triggerBreak = (durationInMinutes) => {
     setSessionState('break');
     setBreakMinutes(durationInMinutes);
-    setTimeout(() => {
-      resetRef.current();
-      startRef.current();
-    }, 50);
+    start(durationInMinutes * 60, 0); // start break timer globally
+  };
+
+  const handleSkipBreakInSession = () => {
+    setSessionState('active');
+    start(workSeconds, calculatedBreakAfterSeconds);
   };
 
   // Synchronize Web Audio Synth with timer running and pause state
@@ -301,7 +313,7 @@ export default function ExecuteTab() {
     });
     setSessionId(id);
     setSessionState('active');
-    start();
+    start(workSeconds, calculatedBreakAfterSeconds);
   };
 
   const handleEndSession = () => {
@@ -898,10 +910,13 @@ export default function ExecuteTab() {
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ width: '100%', textAlign: 'center' }}>
           <PriorityBadge priority={selectedTask?.priority || 'p2'} />
           <h3 className="font-syne font-bold" style={{ fontSize: 18, color: '#F0F2F7', marginTop: 8, marginBottom: 4 }}>
-            {selectedTask?.title || 'Focus Session'}
+            {sessionState === 'break' ? '🌿 Rest Break' : (selectedTask?.title || 'Focus Session')}
           </h3>
-          {intention && (
+          {intention && sessionState !== 'break' && (
             <p className="font-dm" style={{ color: '#4B5060', fontSize: 13 }}>"{intention}"</p>
+          )}
+          {sessionState === 'break' && (
+            <p className="font-dm" style={{ color: '#10B981', fontSize: 13, fontWeight: 500 }}>Recharging your brain...</p>
           )}
         </motion.div>
 
@@ -937,28 +952,76 @@ export default function ExecuteTab() {
         </div>
 
         {/* Controls */}
-        <div style={{ display: 'flex', gap: 8, width: '100%', marginTop: 8 }}>
-          <button
-            className="btn btn-ghost"
-            style={{ flex: 1, height: 50, fontSize: 14, borderRadius: 14 }}
-            onClick={() => { if (isPaused) resume(); else pause(); }}
-          >
-            {isPaused ? '▶ Resume' : '⏸ Pause'}
-          </button>
-          <button
-            className="btn btn-ghost"
-            style={{ flex: 1, height: 50, fontSize: 14, borderRadius: 14, color: '#00C9FF', borderColor: 'rgba(0,201,255,0.25)' }}
-            onClick={() => setExtendedSeconds(prev => prev + 300)}
-          >
-            ➕ +5 Min
-          </button>
-          <button
-            className="btn btn-ghost"
-            style={{ flex: 1, height: 50, fontSize: 14, borderRadius: 14, color: '#F5A623', borderColor: 'rgba(245,166,35,0.25)' }}
-            onClick={handleEndSession}
-          >
-            ✓ Done
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', marginTop: 8 }}>
+          {sessionState === 'break' ? (
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%', height: 50, fontSize: 14, borderRadius: 14 }}
+              onClick={handleSkipBreakInSession}
+            >
+              ⏩ Skip Break & Resume Task
+            </button>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 8, width: '100%' }}>
+                {isPaused ? (
+                  <button
+                    className="btn btn-ghost"
+                    style={{ flex: 1, height: 50, fontSize: 14, borderRadius: 14 }}
+                    onClick={resume}
+                  >
+                    ▶ Resume
+                  </button>
+                ) : (
+                  <button
+                    className="btn btn-ghost"
+                    style={{ flex: 1, height: 50, fontSize: 14, borderRadius: 14 }}
+                    onClick={() => setShowExitPopup(true)}
+                  >
+                    ⏸ Pause / Options
+                  </button>
+                )}
+                <button
+                  className="btn btn-ghost"
+                  style={{ flex: 1, height: 50, fontSize: 14, borderRadius: 14, color: '#00C9FF', borderColor: 'rgba(0,201,255,0.25)' }}
+                  onClick={() => setExtendedSeconds(prev => prev + 300)}
+                >
+                  ➕ +5 Min
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  style={{ flex: 1, height: 50, fontSize: 14, borderRadius: 14, color: '#F5A623', borderColor: 'rgba(245,166,35,0.25)' }}
+                  onClick={handleEndSession}
+                >
+                  ✓ Done
+                </button>
+              </div>
+
+              {/* Manual Break Trigger */}
+              <div style={{ width: '100%', marginTop: 4 }}>
+                <p className="font-dm" style={{ color: '#8B90A0', fontSize: 12, marginBottom: 6, textAlign: 'center', fontWeight: 500 }}>☕ Take a Break Now</p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6 }}>
+                  {[2, 5, 10, 20, 40, 60].map(mins => (
+                    <button
+                      key={mins}
+                      className="btn btn-ghost"
+                      style={{
+                        height: 32,
+                        padding: 0,
+                        fontSize: 11,
+                        borderRadius: 8,
+                        borderColor: 'rgba(255,255,255,0.06)',
+                        background: 'rgba(255,255,255,0.01)'
+                      }}
+                      onClick={() => triggerBreak(mins)}
+                    >
+                      {mins === 60 ? '1h' : `${mins}m`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Notes Toggle */}
@@ -1118,11 +1181,13 @@ export default function ExecuteTab() {
                     style={{ height: 46 }}
                     onClick={() => {
                       setShowExitPopup(false);
+                      const dest = pendingTab;
                       setPendingTab(null);
-                      if (!isPaused) resume();
+                      if (dest) setActiveTab(dest);
+                      if (isPaused) resume();
                     }}
                   >
-                    ▶ Resume Focus
+                    ▶ Run in Background
                   </button>
 
                   <button
@@ -1131,39 +1196,44 @@ export default function ExecuteTab() {
                     onClick={() => {
                       pause();
                       setShowExitPopup(false);
+                      const dest = pendingTab;
                       setPendingTab(null);
+                      if (dest) setActiveTab(dest);
                     }}
                   >
-                    ⏸ Pause Session
+                    ⏸ Pause & Keep Session
                   </button>
 
                   {/* Take a break panel */}
                   <div style={{ border: '1px solid rgba(255,255,255,0.05)', borderRadius: 16, padding: 12, background: 'rgba(255,255,255,0.01)' }}>
-                    <p className="font-dm" style={{ color: '#8B90A0', fontSize: 13, marginBottom: 8 }}>Take a Break Instead</p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                      <input
-                        type="range"
-                        className="slider"
-                        min={2} max={60} step={1}
-                        value={customBreakDuration}
-                        onChange={e => setCustomBreakDuration(Number(e.target.value))}
-                        style={{ flex: 1 }}
-                      />
-                      <span className="font-syne font-bold" style={{ color: '#F5A623', fontSize: 14, minWidth: 45 }}>
-                        {customBreakDuration}m
-                      </span>
+                    <p className="font-dm" style={{ color: '#8B90A0', fontSize: 13, marginBottom: 10, fontWeight: 500 }}>☕ Take a Break Instead</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                      {[2, 5, 10, 20, 40, 60].map(mins => (
+                        <button
+                          key={mins}
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{
+                            height: 32,
+                            padding: 0,
+                            fontSize: 11,
+                            borderRadius: 8,
+                            borderColor: 'rgba(16,185,129,0.3)',
+                            color: '#10B981',
+                            background: 'rgba(16,185,129,0.02)'
+                          }}
+                          onClick={() => {
+                            triggerBreak(mins);
+                            setShowExitPopup(false);
+                            const dest = pendingTab;
+                            setPendingTab(null);
+                            if (dest) setActiveTab(dest);
+                          }}
+                        >
+                          {mins === 60 ? '1h Break' : `${mins}m Break`}
+                        </button>
+                      ))}
                     </div>
-                    <button
-                      className="btn btn-ghost"
-                      style={{ width: '100%', height: 36, fontSize: 13, borderColor: 'rgba(16,185,129,0.3)', color: '#10B981' }}
-                      onClick={() => {
-                        setShowExitPopup(false);
-                        setPendingTab(null);
-                        triggerBreak(customBreakDuration);
-                      }}
-                    >
-                      🌿 Start Break
-                    </button>
                   </div>
 
                   <button
@@ -1182,7 +1252,7 @@ export default function ExecuteTab() {
                       setActiveTab(destination);
                     }}
                   >
-                    🛑 Cancel & Exit Session
+                    🛑 Close completely (Cancel)
                   </button>
                 </div>
               </motion.div>

@@ -42,13 +42,90 @@ const TAB_ORDER = ['execute', 'plan', 'tasks', 'analyse', 'settings'];
 
 
 export default function App() {
-  const { activeTab, setSettings, settings } = useAppStore();
+  const { 
+    activeTab, 
+    setSettings, 
+    settings,
+    timerIsRunning,
+    timerIsPaused,
+    timerTargetTime,
+    setTimerSecondsLeft,
+    sessionState,
+    setSessionState,
+    timerTotalSeconds,
+    timerBreakAfterSeconds,
+    timerBreaksDone,
+    setTimerBreaksDone,
+    setTimerShowBreakOverlay,
+    setTimerIsRunning
+  } = useAppStore();
   const [streak, setStreak] = useState(0);
   const [showSplash, setShowSplash] = useState(true);
   const [showKickstart, setShowKickstart] = useState(false);
   const [prevTab, setPrevTab] = useState('execute');
   const isOnline = useOnlineStatus();
   const { sendNotification } = useNotifications();
+
+  // Global Timer Tick Effect
+  useEffect(() => {
+    if (!timerIsRunning || timerIsPaused || !timerTargetTime) return;
+
+    const tickInterval = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((timerTargetTime - Date.now()) / 1000));
+      setTimerSecondsLeft(remaining);
+
+      // Check for completion
+      if (remaining <= 0) {
+        clearInterval(tickInterval);
+        setTimerIsRunning(false);
+        if (sessionState === 'active') {
+          sendNotification('Session Complete! 🎉', 'Your focus session is done. Great work!');
+          setSessionState('complete');
+        } else if (sessionState === 'break') {
+          sendNotification('Break over!', 'Time to get back to work.');
+          setSessionState('active');
+          
+          const autoStart = useAppStore.getState().settings?.autoStartNextSession;
+          if (autoStart) {
+            const workMins = useAppStore.getState().timerWorkMinutes || 45;
+            const breakInt = useAppStore.getState().timerBreakInterval || 25;
+            useAppStore.getState().startGlobalTimer(workMins * 60, breakInt * 60);
+          } else {
+            useAppStore.getState().resetGlobalTimer();
+          }
+        }
+      }
+
+      // Check for break interval
+      if (sessionState === 'active' && timerBreakAfterSeconds > 0) {
+        const elapsed = timerTotalSeconds - remaining;
+        const shouldBeBreaksDone = Math.floor(elapsed / timerBreakAfterSeconds);
+        if (shouldBeBreaksDone > timerBreaksDone) {
+          setTimerBreaksDone(shouldBeBreaksDone);
+          sendNotification('Break time! 🌿', 'Take a short break. You deserve it.');
+          useAppStore.getState().pauseGlobalTimer();
+          setTimerShowBreakOverlay(true);
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(tickInterval);
+  }, [
+    timerIsRunning,
+    timerIsPaused,
+    timerTargetTime,
+    sessionState,
+    timerTotalSeconds,
+    timerBreakAfterSeconds,
+    timerBreaksDone,
+    setTimerSecondsLeft,
+    setTimerIsRunning,
+    setSessionState,
+    setTimerBreaksDone,
+    setTimerShowBreakOverlay,
+    sendNotification
+  ]);
+
 
   // Load settings from DB on mount
   useEffect(() => {

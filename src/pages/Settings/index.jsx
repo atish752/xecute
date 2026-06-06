@@ -84,6 +84,9 @@ const ACCENT_COLORS = [
   { id: 'red', label: '🔴 Red', hex: '#EF4444' },
 ];
 
+const AMBER = '#F5A623';
+const CYAN = '#00C9FF';
+
 export default function SettingsTab() {
   const { setSettings } = useAppStore();
   const { canInstall, isInstalled, install } = useInstallPrompt();

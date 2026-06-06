@@ -62,10 +62,9 @@ function TodayDashboard({ streak }) {
 
   // Live queries for deep analytics
   const allTasks = useLiveQuery(() => db.tasks.toArray(), [], []);
-  const todaySessions = useLiveQuery(() => {
-    return db.sessions
-      .filter(s => s.startTime && s.startTime.startsWith(todayStr) && s.endTime !== null)
-      .toArray();
+  const todaySessions = useLiveQuery(async () => {
+    const sessions = await db.sessions.toArray();
+    return sessions.filter(s => s.startTime && s.startTime.startsWith(todayStr) && s.endTime !== null);
   }, [], []);
 
   const hour = new Date().getHours();

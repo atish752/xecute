@@ -25,7 +25,10 @@ export default function TasksTab() {
   const [isEnhancing, setIsEnhancing] = useState(false);
 
   // Live query for standalone tasks (where planId is null or undefined)
-  const allTasks = useLiveQuery(() => db.tasks.filter(t => !t.planId).toArray(), [], []);
+  const allTasks = useLiveQuery(async () => {
+    const arr = await db.tasks.toArray();
+    return arr.filter(t => !t.planId);
+  }, [], []);
 
   const todayStr = new Date().toISOString().split('T')[0];
 

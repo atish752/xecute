@@ -92,8 +92,11 @@ export const createStandaloneTask = async (data) => {
   return id;
 };
 
-export const getStandaloneTasks = () =>
-  db.tasks.filter(t => !t.planId).toArray();
+export const getStandaloneTasks = async () => {
+  const arr = await db.tasks.toArray();
+  return arr.filter(t => !t.planId);
+};
+
 
 export const toggleTaskCompletion = async (id) => {
   const task = await db.tasks.get(id);
