@@ -1020,32 +1020,37 @@ export default function ExecuteTab() {
         {/* Break Overlay */}
         <AnimatePresence>
           {showBreakOverlay && (
-            <>
-              <motion.div
-                className="modal-backdrop"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                style={{ position: 'fixed', inset: 0, zIndex: 140, background: 'rgba(7,8,10,0.85)', backdropFilter: 'blur(10px)' }}
-              />
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 140,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(7,8,10,0.85)',
+                backdropFilter: 'blur(10px)',
+                padding: 20
+              }}
+            >
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
                 transition={{ type: 'spring', stiffness: 350, damping: 28 }}
                 className="glass-dark"
+                onClick={(e) => e.stopPropagation()}
                 style={{
-                  position: 'fixed',
-                  top: '50%',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
                   borderRadius: 24,
                   padding: 28,
                   zIndex: 150,
                   textAlign: 'center',
                   border: '1px solid rgba(245,166,35,0.15)',
                   boxShadow: '0 20px 50px rgba(0,0,0,0.6), 0 0 30px rgba(245,166,35,0.1)',
-                  width: 'calc(100% - 40px)',
+                  width: '100%',
                   maxWidth: 400,
                   maxHeight: '85vh',
                   overflowY: 'auto',
@@ -1061,43 +1066,48 @@ export default function ExecuteTab() {
                   <button className="btn btn-primary" style={{ flex: 2, height: 46 }} onClick={handleBreakTake}>Take {breakMinutes}m Break</button>
                 </div>
               </motion.div>
-            </>
+            </motion.div>
           )}
         </AnimatePresence>
 
         {/* Exit Confirmation Modal */}
         <AnimatePresence>
           {showExitPopup && (
-            <>
-              <motion.div
-                className="modal-backdrop"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => {
-                  setShowExitPopup(false);
-                  setPendingTab(null);
-                }}
-                style={{ position: 'fixed', inset: 0, zIndex: 140, background: 'rgba(7,8,10,0.85)', backdropFilter: 'blur(10px)' }}
-              />
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setShowExitPopup(false);
+                setPendingTab(null);
+              }}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 140,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(7,8,10,0.85)',
+                backdropFilter: 'blur(10px)',
+                padding: 20
+              }}
+            >
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
                 transition={{ type: 'spring', stiffness: 350, damping: 28 }}
                 className="glass-dark"
+                onClick={(e) => e.stopPropagation()}
                 style={{
-                  position: 'fixed',
-                  top: '50%',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
                   borderRadius: 24,
                   padding: 28,
                   zIndex: 150,
                   textAlign: 'center',
                   border: '1px solid rgba(245,166,35,0.15)',
                   boxShadow: '0 20px 50px rgba(0,0,0,0.6), 0 0 30px rgba(245,166,35,0.1)',
-                  width: 'calc(100% - 40px)',
+                  width: '100%',
                   maxWidth: 400,
                   maxHeight: '85vh',
                   overflowY: 'auto',
@@ -1188,11 +1198,11 @@ export default function ExecuteTab() {
                       setActiveTab(destination);
                     }}
                   >
-                    🛑 Close completely (Cancel)
+                    🛑 Cancel & Discard Session
                   </button>
                 </div>
               </motion.div>
-            </>
+            </motion.div>
           )}
         </AnimatePresence>
       </div>

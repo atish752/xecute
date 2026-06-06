@@ -137,6 +137,12 @@ export default function App() {
     init();
   }, [setSettings]);
 
+  // Apply theme class to document root
+  const currentTheme = settings?.theme || 'dark';
+  useEffect(() => {
+    document.documentElement.className = currentTheme === 'light' ? 'light-theme' : 'dark-theme';
+  }, [currentTheme]);
+
   // Procrastination Shield Check
   useEffect(() => {
     if (!settings || !settings.procrastinationShield) return;

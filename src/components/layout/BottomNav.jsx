@@ -87,7 +87,7 @@ export default function BottomNav() {
               key={tab.id}
               id={`nav-${tab.id}`}
               onClick={() => {
-                if (tab.id !== 'execute' && (sessionState === 'active' || sessionState === 'break')) {
+                if (activeTab === 'execute' && tab.id !== 'execute' && (sessionState === 'active' || sessionState === 'break')) {
                   setPendingTab(tab.id);
                   setShowExitPopup(true);
                 } else {

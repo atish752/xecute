@@ -507,3 +507,164 @@ textarea.input { resize: none; min-height: 80px; }
   line-height: 1.6;
   max-width: 260px;
 }
+
+/* ---------- Light Theme Selector Overrides ---------- */
+.light-theme {
+  --color-bg:            #F4F6F9;
+  --color-bg-deep:       #E9ECF2;
+  --color-surface-0:     rgba(0,0,0,0.02);
+  --color-surface-1:     rgba(0,0,0,0.04);
+  --color-surface-2:     rgba(0,0,0,0.06);
+  --color-surface-3:     rgba(0,0,0,0.08);
+  --color-border-subtle: rgba(0,0,0,0.05);
+  --color-border:        rgba(0,0,0,0.08);
+  --color-border-bright: rgba(0,0,0,0.15);
+
+  --color-text-primary:   #1A1D24;
+  --color-text-secondary: #5A6070;
+  --color-text-muted:     #808696;
+  --color-text-disabled:  #B0B5C4;
+
+  background-color: #F4F6F9 !important;
+  color: #1A1D24 !important;
+}
+
+/* Force body and root background */
+.light-theme body,
+.light-theme #root,
+.light-theme [style*="background: #07080a"],
+.light-theme [style*="background-color: #07080a"] {
+  background: #F4F6F9 !important;
+  background-color: #F4F6F9 !important;
+}
+
+/* Map inline text colors */
+.light-theme [style*="color: #F0F2F7"],
+.light-theme [style*="color: #f0f2f7"] {
+  color: #1A1D24 !important;
+}
+.light-theme [style*="color: rgb(240, 242, 247)"] {
+  color: #1A1D24 !important;
+}
+
+.light-theme [style*="color: #8B90A0"],
+.light-theme [style*="color: #8b90a0"] {
+  color: #5A6070 !important;
+}
+.light-theme [style*="color: rgb(139, 144, 160)"] {
+  color: #5A6070 !important;
+}
+
+.light-theme [style*="color: #4B5060"],
+.light-theme [style*="color: #4b5060"] {
+  color: #808696 !important;
+}
+.light-theme [style*="color: rgb(75, 80, 96)"] {
+  color: #808696 !important;
+}
+
+/* Map glass styles */
+.light-theme .glass {
+  background: rgba(255, 255, 255, 0.75) !important;
+  backdrop-filter: blur(24px) saturate(220%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(220%) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 
+    0 8px 32px 0 rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.6) !important;
+}
+
+.light-theme .glass-sm {
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+  box-shadow: 
+    0 4px 16px 0 rgba(0, 0, 0, 0.03),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.5) !important;
+}
+
+.light-theme .glass-dark {
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(32px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(200%) !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 
+    0 12px 40px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+.light-theme .glass-amber {
+  background: rgba(245, 166, 35, 0.06) !important;
+  backdrop-filter: blur(24px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(200%) !important;
+  border: 1px solid rgba(245, 166, 35, 0.25) !important;
+  box-shadow: 
+    0 8px 32px 0 rgba(245, 166, 35, 0.04),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.3) !important;
+}
+
+.light-theme .glass-cyan {
+  background: rgba(0, 201, 255, 0.06) !important;
+  backdrop-filter: blur(24px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(200%) !important;
+  border: 1px solid rgba(0, 201, 255, 0.25) !important;
+  box-shadow: 
+    0 8px 32px 0 rgba(0, 201, 255, 0.04),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Map other custom background colors */
+.light-theme [style*="background: rgba(255, 255, 255, 0.01)"],
+.light-theme [style*="background: rgba(255, 255, 255, 0.02)"],
+.light-theme [style*="background: rgba(255, 255, 255, 0.03)"] {
+  background: rgba(0, 0, 0, 0.02) !important;
+}
+
+.light-theme [style*="background: rgba(255, 255, 255, 0.015)"] {
+  background: rgba(0, 0, 0, 0.03) !important;
+}
+
+/* Map input borders and text colors */
+.light-theme input, .light-theme select, .light-theme textarea {
+  color: #1A1D24 !important;
+  background-color: rgba(0, 0, 0, 0.03) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+.light-theme input::placeholder, .light-theme textarea::placeholder {
+  color: #808696 !important;
+}
+
+/* Map SVG stroke colors */
+.light-theme svg {
+  stroke-opacity: 0.8;
+}
+.light-theme svg [stroke="#4B5060"] {
+  stroke: #5A6070 !important;
+}
+.light-theme svg [stroke="#8B90A0"] {
+  stroke: #5A6070 !important;
+}
+
+/* Custom indicator line for active nav */
+.light-theme div[style*="background: linear-gradient(90deg, #F5A623, #FFD060)"] {
+  background: linear-gradient(90deg, #F5A623, #D48C11) !important;
+}
+
+/* App Header & Bottom Nav in light theme */
+.light-theme header,
+.light-theme nav {
+  background-color: #E9ECF2 !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Typography styles in light mode */
+.light-theme h1, .light-theme h2, .light-theme h3, .light-theme h4, .light-theme h5 {
+  color: #1A1D24 !important;
+}
+
+.light-theme .section-label {
+  color: #5A6070 !important;
+}
+

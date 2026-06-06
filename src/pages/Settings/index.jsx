@@ -340,6 +340,12 @@ export default function SettingsTab() {
             onChange={v => update('accentColor', v)}
           />
           <SelectRow
+            label="Theme"
+            options={[{ value: 'dark', label: '🌙 Dark Mode' }, { value: 'light', label: '☀️ Light Mode' }]}
+            value={s.theme || 'dark'}
+            onChange={v => update('theme', v)}
+          />
+          <SelectRow
             label="Font Size"
             options={[{ value: 'small', label: 'Small' }, { value: 'medium', label: 'Medium' }, { value: 'large', label: 'Large' }]}
             value={s.fontSize}
