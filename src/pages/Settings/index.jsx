@@ -5,6 +5,14 @@ import { db } from '../../db/schema.js';
 import { useAppStore } from '../../store/appStore.js';
 import { useInstallPrompt } from '../../hooks/useInstallPrompt.js';
 import Toggle from '../../components/common/Toggle.jsx';
+import { 
+  registerUser, 
+  loginUser, 
+  syncToCloud, 
+  restoreFromCloud, 
+  getBackupsList 
+} from '../../utils/cloudSync.js';
+
 
 const Section = ({ title, children }) => (
   <div style={{ marginBottom: 24 }}>
@@ -83,6 +91,24 @@ export default function SettingsTab() {
   const [saved, setSaved] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
+  // Cloud Sync & Security States
+  const [currentUser, setCurrentUser] = useState(() => localStorage.getItem('xecute_signed_in_user') || null);
+  const [userPassword, setUserPassword] = useState(() => localStorage.getItem('xecute_signed_in_password') || '');
+  
+  // Auth Form State
+  const [authUsername, setAuthUsername] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authMessage, setAuthMessage] = useState('');
+  const [authMode, setAuthMode] = useState('login'); // login | signup
+
+  // Sync state
+  const [syncing, setSyncing] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [backups, setBackups] = useState(() => currentUser ? getBackupsList(currentUser) : []);
+  const [autoSync, setAutoSync] = useState(() => localStorage.getItem('xecute_auto_sync_enabled') === 'true');
+
+
   useEffect(() => {
     getAllSettings().then(async (loaded) => {
       // Auto-seed Gemini key from env if not yet stored
@@ -105,6 +131,106 @@ export default function SettingsTab() {
     setSaved(key);
     setTimeout(() => setSaved(''), 1500);
   };
+
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    if (!authUsername.trim() || !authPassword) return;
+    setAuthLoading(true);
+    setAuthMessage('');
+
+    if (authMode === 'signup') {
+      const res = await registerUser(authUsername, authPassword);
+      if (res.success) {
+        // Log in immediately
+        localStorage.setItem('xecute_signed_in_user', authUsername.trim().toLowerCase());
+        localStorage.setItem('xecute_signed_in_password', authPassword);
+        setCurrentUser(authUsername.trim().toLowerCase());
+        setUserPassword(authPassword);
+        setBackups([]);
+        setAuthUsername('');
+        setAuthPassword('');
+        setAuthMessage('Account created and signed in! 🎉');
+      } else {
+        setAuthMessage(`❌ ${res.message}`);
+      }
+    } else {
+      const res = await loginUser(authUsername, authPassword);
+      if (res.success) {
+        localStorage.setItem('xecute_signed_in_user', res.username);
+        localStorage.setItem('xecute_signed_in_password', authPassword);
+        setCurrentUser(res.username);
+        setUserPassword(authPassword);
+        const list = getBackupsList(res.username);
+        setBackups(list);
+        
+        // Auto restore latest if backups exist
+        if (list.length > 0) {
+          if (window.confirm('Latest cloud backup found! Restore data now?')) {
+            setRestoring(true);
+            const restRes = await restoreFromCloud(res.username, authPassword, 0);
+            if (restRes.success) {
+              alert('Data restored successfully! Window will reload.');
+              window.location.reload();
+            } else {
+              alert(`Restore failed: ${restRes.message}`);
+            }
+            setRestoring(false);
+          }
+        }
+        
+        setAuthUsername('');
+        setAuthPassword('');
+        setAuthMessage('Logged in successfully! 🚀');
+      } else {
+        setAuthMessage(`❌ ${res.message}`);
+      }
+    }
+    setAuthLoading(false);
+  };
+
+  const handleLogOut = () => {
+    localStorage.removeItem('xecute_signed_in_user');
+    localStorage.removeItem('xecute_signed_in_password');
+    setCurrentUser(null);
+    setUserPassword('');
+    setBackups([]);
+    setAuthMessage('Logged out.');
+  };
+
+  const handleSyncNow = async () => {
+    if (!currentUser || !userPassword) return;
+    setSyncing(true);
+    const res = await syncToCloud(currentUser, userPassword);
+    if (res.success) {
+      setBackups(res.backups);
+      setSaved('sync');
+      setTimeout(() => setSaved(''), 1500);
+    } else {
+      alert(`Sync failed: ${res.message}`);
+    }
+    setSyncing(false);
+  };
+
+  const handleRestoreNow = async (index) => {
+    if (!currentUser || !userPassword) return;
+    if (window.confirm('Restore this backup? All current local data will be replaced.')) {
+      setRestoring(true);
+      const res = await restoreFromCloud(currentUser, userPassword, index);
+      if (res.success) {
+        alert('Data restored successfully! Reloading...');
+        window.location.reload();
+      } else {
+        alert(`Restore failed: ${res.message}`);
+      }
+      setRestoring(false);
+    }
+  };
+
+  const toggleAutoSync = (val) => {
+    setAutoSync(val);
+    localStorage.setItem('xecute_auto_sync_enabled', String(val));
+  };
+
 
   const handleExport = async () => {
     const data = {
@@ -276,6 +402,145 @@ export default function SettingsTab() {
                 noBorder
               />
             </>
+          )}
+        </Section>
+
+        {/* Cloud Sync & Security */}
+        <Section title="🔒 Cloud Sync & Security">
+          {!currentUser ? (
+            <div style={{ padding: '16px 18px' }}>
+              <p className="font-dm" style={{ color: '#8B90A0', fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
+                Sign in to secure your data on the cloud. Create any ID and password; no verification is needed.
+              </p>
+              <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <input
+                    type="text"
+                    className="input"
+                    required
+                    placeholder="Username / ID"
+                    value={authUsername}
+                    onChange={e => setAuthUsername(e.target.value)}
+                    style={{ fontSize: 13 }}
+                  />
+                </div>
+                <div>
+                  <input
+                    type="password"
+                    className="input"
+                    required
+                    placeholder="Password"
+                    value={authPassword}
+                    onChange={e => setAuthPassword(e.target.value)}
+                    style={{ fontSize: 13 }}
+                  />
+                </div>
+                
+                {authMessage && (
+                  <p className="font-dm" style={{ fontSize: 12.5, color: authMessage.startsWith('❌') ? '#EF4444' : '#22C55E', textAlign: 'center', marginTop: 4 }}>
+                    {authMessage}
+                  </p>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+                  <button
+                    type="submit"
+                    onClick={() => setAuthMode('login')}
+                    className="btn btn-primary"
+                    disabled={authLoading}
+                    style={{ flex: 1, height: 42, fontSize: 13 }}
+                  >
+                    {authLoading && authMode === 'login' ? 'Logging in...' : '🔑 Log In'}
+                  </button>
+                  <button
+                    type="submit"
+                    onClick={() => setAuthMode('signup')}
+                    className="btn btn-ghost"
+                    disabled={authLoading}
+                    style={{ flex: 1, height: 42, fontSize: 13 }}
+                  >
+                    {authLoading && authMode === 'signup' ? 'Signing up...' : '📝 Sign Up'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : (
+            <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <p className="font-dm font-semibold" style={{ color: '#F0F2F7', fontSize: 14.5 }}>
+                    👤 Signed in as <span style={{ color: AMBER }}>{currentUser}</span>
+                  </p>
+                  <p className="font-dm" style={{ color: '#4B5060', fontSize: 12, marginTop: 2 }}>
+                    Cloud Sync is active and secured.
+                  </p>
+                </div>
+                <button
+                  onClick={handleLogOut}
+                  className="btn btn-ghost"
+                  style={{ height: 32, padding: '0 12px', fontSize: 11, color: '#EF4444', borderColor: 'rgba(239,68,68,0.2)' }}
+                >
+                  Log Out
+                </button>
+              </div>
+
+              <Row 
+                label="Auto-sync on focus" 
+                sublabel="Automatically backup after completing focus sessions"
+                right={<Toggle id="auto-sync-cloud" value={autoSync} onChange={toggleAutoSync} />} 
+              />
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                <button
+                  onClick={handleSyncNow}
+                  className="btn btn-primary"
+                  disabled={syncing}
+                  style={{ flex: 1, height: 44, fontSize: 13 }}
+                >
+                  {syncing ? '⌛ Syncing...' : '📤 Backup to Cloud'}
+                </button>
+              </div>
+
+              {/* Backups List */}
+              <div style={{ marginTop: 8 }}>
+                <p className="section-label" style={{ fontSize: 11, marginBottom: 8, color: '#8B90A0' }}>Backup Restore Points (Max 5)</p>
+                {backups.length === 0 ? (
+                  <p className="font-dm" style={{ color: '#4B5060', fontSize: 12, fontStyle: 'italic', paddingLeft: 4 }}>
+                    No cloud backups found. Click backup above.
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {backups.map((b, idx) => (
+                      <div 
+                        key={b.timestamp} 
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'space-between', 
+                          padding: '10px 12px', 
+                          borderRadius: 10,
+                          background: 'rgba(255,255,255,0.01)',
+                          border: '1px solid rgba(255,255,255,0.03)'
+                        }}
+                      >
+                        <div>
+                          <p className="font-dm font-medium" style={{ fontSize: 12, color: '#F0F2F7' }}>{b.label}</p>
+                          <p className="font-dm" style={{ fontSize: 10, color: '#4B5060', marginTop: 2 }}>Encrypted client-side</p>
+                        </div>
+                        <button
+                          onClick={() => handleRestoreNow(idx)}
+                          className="btn btn-ghost"
+                          style={{ height: 28, padding: '0 10px', fontSize: 11, color: CYAN, borderColor: 'rgba(0,201,255,0.2)' }}
+                          disabled={restoring}
+                        >
+                          Restore
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </Section>
 

@@ -16,6 +16,7 @@ import MorningKickstart from './components/layout/MorningKickstart.jsx';
 
 import ExecuteTab from './pages/Execute/index.jsx';
 import PlanTab from './pages/Plan/index.jsx';
+import TasksTab from './pages/Tasks/index.jsx';
 import AnalyseTab from './pages/Analyse/index.jsx';
 import SettingsTab from './pages/Settings/index.jsx';
 
@@ -25,6 +26,7 @@ registerSW({ immediate: true });
 const TAB_COMPONENTS = {
   execute: ExecuteTab,
   plan: PlanTab,
+  tasks: TasksTab,
   analyse: AnalyseTab,
   settings: SettingsTab,
 };
@@ -36,7 +38,8 @@ const getVariants = () => ({
   exit:     { scale: 1.04, opacity: 0, filter: 'blur(8px)' },
 });
 
-const TAB_ORDER = ['execute', 'plan', 'analyse', 'settings'];
+const TAB_ORDER = ['execute', 'plan', 'tasks', 'analyse', 'settings'];
+
 
 export default function App() {
   const { activeTab, setSettings, settings } = useAppStore();

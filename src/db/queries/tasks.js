@@ -71,3 +71,53 @@ export const reorderTasks = async (planId, orderedIds) => {
     }
   });
 };
+
+export const createStandaloneTask = async (data) => {
+  const id = await db.tasks.add({
+    planId: null,
+    categoryId: null,
+    title: data.title,
+    description: data.description || '',
+    estimatedMinutes: data.estimatedMinutes || 25,
+    priority: data.priority || 'p2',
+    taskType: data.taskType || 'one-time',
+    dueDate: data.dueDate || null,
+    completedDates: data.completedDates || [],
+    status: 'active',
+    progress: 0,
+    isRecurring: false,
+    order: data.order || 0,
+    createdAt: new Date().toISOString(),
+  });
+  return id;
+};
+
+export const getStandaloneTasks = () =>
+  db.tasks.filter(t => !t.planId).toArray();
+
+export const toggleTaskCompletion = async (id) => {
+  const task = await db.tasks.get(id);
+  if (!task) return;
+  if (task.taskType === 'daily') {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const completedDates = task.completedDates || [];
+    let nextDates = [...completedDates];
+    let nextProgress = 0;
+    if (completedDates.includes(todayStr)) {
+      nextDates = nextDates.filter(d => d !== todayStr);
+      nextProgress = 0;
+    } else {
+      nextDates.push(todayStr);
+      nextProgress = 100;
+    }
+    await db.tasks.update(id, { completedDates: nextDates, progress: nextProgress });
+  } else {
+    const isCompleted = task.status === 'completed';
+    await db.tasks.update(id, {
+      status: isCompleted ? 'active' : 'completed',
+      progress: isCompleted ? 0 : 100,
+      updatedAt: new Date().toISOString()
+    });
+  }
+};
+

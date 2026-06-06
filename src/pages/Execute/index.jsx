@@ -14,6 +14,8 @@ import confetti from 'canvas-confetti';
 import PriorityBadge from '../../components/common/PriorityBadge.jsx';
 import { startSound, stopSound } from '../../utils/audioSynth.js';
 import { addToInbox } from '../../db/queries/analytics.js';
+import { syncToCloud } from '../../utils/cloudSync.js';
+
 
 
 const PRESETS = [
@@ -119,37 +121,50 @@ export default function ExecuteTab() {
   const { sendNotification, requestPermission } = useNotifications();
 
   const activePlans = useLiveQuery(() => db.plans.where('status').equals('active').toArray(), [], []);
-  const [selectedPlanId, setSelectedPlanId] = useState(null);
+  const [selectedPlanId, setSelectedPlanId] = useState('today-tasks');
 
-  // Sync selectedPlanId with the first active plan if not set or if current one is no longer active
+  // Sync selectedPlanId with first active plan if not set or if current one is no longer active
   useEffect(() => {
+    if (selectedPlanId === 'today-tasks') return;
     if (activePlans && activePlans.length > 0) {
       if (!selectedPlanId || !activePlans.some(p => p.id === selectedPlanId)) {
-        setSelectedPlanId(activePlans[0].id);
+        setSelectedPlanId('today-tasks');
       }
     } else {
-      setSelectedPlanId(null);
+      setSelectedPlanId('today-tasks');
     }
   }, [activePlans, selectedPlanId]);
 
-  // Deselect task if it doesn't belong to the selected plan
+  // Deselect task if it doesn't belong to the selected plan or standalone
   useEffect(() => {
-    if (selectedTask && selectedTask.planId !== selectedPlanId) {
+    if (selectedTask && selectedTask.planId !== selectedPlanId && !(selectedPlanId === 'today-tasks' && !selectedTask.planId)) {
       setSelectedTask(null);
     }
   }, [selectedPlanId, selectedTask, setSelectedTask]);
 
   const categories = useLiveQuery(async () => {
-    if (!selectedPlanId) return [];
+    if (!selectedPlanId || selectedPlanId === 'today-tasks') return [];
     const cats = await db.categories.where('planId').equals(selectedPlanId).toArray();
     return cats.sort((a, b) => (a.order || 0) - (b.order || 0));
   }, [selectedPlanId], []);
 
   const tasks = useLiveQuery(async () => {
     if (!selectedPlanId) return [];
+    if (selectedPlanId === 'today-tasks') {
+      const allStandalone = await db.tasks.filter(t => !t.planId).toArray();
+      const todayStr = new Date().toISOString().split('T')[0];
+      return allStandalone.filter(t => {
+        if (t.taskType === 'daily') return true;
+        // One-time tasks: show if active, or if completed today
+        if (t.status === 'active') return true;
+        if (t.status === 'completed' && t.updatedAt && t.updatedAt.startsWith(todayStr)) return true;
+        return false;
+      });
+    }
     const allPlanTasks = await db.tasks.where('planId').equals(selectedPlanId).toArray();
     return allPlanTasks.filter(t => t.status === 'active');
   }, [selectedPlanId], []);
+
 
   // Session setup state
   const [workMinutes, setWorkMinutes] = useState(45);
@@ -316,9 +331,35 @@ export default function ExecuteTab() {
       });
     }
     if (selectedTask) {
-      await updateTaskProgress(selectedTask.id, progressSlider);
+      if (selectedTask.taskType === 'daily') {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const completedDates = selectedTask.completedDates || [];
+        if (progressSlider >= 100) {
+          if (!completedDates.includes(todayStr)) completedDates.push(todayStr);
+        } else {
+          const idx = completedDates.indexOf(todayStr);
+          if (idx > -1) completedDates.splice(idx, 1);
+        }
+        await db.tasks.update(selectedTask.id, {
+          completedDates,
+          progress: progressSlider,
+          updatedAt: new Date().toISOString()
+        });
+      } else {
+        await updateTaskProgress(selectedTask.id, progressSlider);
+      }
     }
     await checkAndUnlockMilestones();
+
+    // Auto cloud backup if signed in and auto-sync is enabled
+    const autoSyncEnabled = localStorage.getItem('xecute_auto_sync_enabled') === 'true';
+    const signedInUser = localStorage.getItem('xecute_signed_in_user');
+    const password = localStorage.getItem('xecute_signed_in_password');
+    if (autoSyncEnabled && signedInUser && password) {
+      syncToCloud(signedInUser, password).catch(e => console.error('[Execute Sync] Auto-sync failed:', e));
+    }
+
+
 
     if (progressSlider >= 100) {
       confetti({
@@ -351,8 +392,27 @@ export default function ExecuteTab() {
 
   const uncategorizedTasks = sortTasks((tasks || []).filter(t => !t.categoryId));
 
-  const renderExecuteTaskItem = (task) => {
+  const renderExecuteTaskItem = (task, isSignal = false, isNoise = false) => {
     const isSelected = selectedTask?.id === task.id;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const isCompleted = task.taskType === 'daily'
+      ? task.completedDates?.includes(todayStr)
+      : task.status === 'completed';
+
+    let borderColor = 'rgba(255,255,255,0.04)';
+    let background = 'rgba(255,255,255,0.01)';
+    let boxShadow = 'none';
+
+    if (isSelected) {
+      borderColor = 'rgba(245,166,35,0.40)';
+      background = 'rgba(245,166,35,0.06)';
+      boxShadow = '0 0 15px rgba(245,166,35,0.05)';
+    } else if (isSignal) {
+      borderColor = 'rgba(239,68,68,0.25)';
+      background = 'rgba(239,68,68,0.025)';
+      boxShadow = '0 0 12px rgba(239,68,68,0.08)';
+    }
+
     return (
       <motion.div
         key={task.id}
@@ -360,31 +420,45 @@ export default function ExecuteTab() {
         className="glass glass-sm card-hover"
         style={{
           cursor: 'pointer',
-          borderColor: isSelected ? 'rgba(245,166,35,0.40)' : 'rgba(255,255,255,0.04)',
-          background: isSelected ? 'rgba(245,166,35,0.06)' : 'rgba(255,255,255,0.01)',
+          borderColor,
+          background,
           padding: '12px 14px',
           borderRadius: 14,
-          boxShadow: isSelected ? '0 0 15px rgba(245,166,35,0.05)' : 'none',
+          boxShadow,
+          opacity: isCompleted ? 0.55 : (isNoise ? 0.75 : 1),
+          transition: 'all 0.2s',
         }}
         onClick={() => setSelectedTask(isSelected ? null : task)}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p className="font-dm font-medium" style={{ color: '#F0F2F7', fontSize: 14, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <p className="font-dm font-medium" style={{ color: '#F0F2F7', fontSize: 14, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: isCompleted ? 'line-through' : 'none' }}>
               {task.title}
             </p>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <PriorityBadge priority={task.priority} />
+              
+              {!task.planId && (
+                <span className="chip" style={{ background: 'rgba(255,255,255,0.03)', color: '#8B90A0', border: '1px solid rgba(255,255,255,0.04)', fontSize: 10 }}>
+                  {task.taskType === 'daily' ? '🔄 Daily' : '🎯 One-time'}
+                </span>
+              )}
+
               {task.estimatedMinutes && (
                 <span className="font-dm" style={{ color: '#8B90A0', fontSize: 11.5 }}>
                   ~{task.estimatedMinutes}m est.
                 </span>
               )}
-              {task.progress > 0 && (
+
+              {isCompleted ? (
+                <span className="font-dm" style={{ color: '#10B981', fontSize: 11.5, fontWeight: 600 }}>
+                  ✓ Completed today
+                </span>
+              ) : task.progress > 0 ? (
                 <span className="font-dm text-glow-cyan" style={{ color: '#00C9FF', fontSize: 11.5 }}>
                   {task.progress}% done
                 </span>
-              )}
+              ) : null}
             </div>
           </div>
           {isSelected && (
@@ -410,6 +484,7 @@ export default function ExecuteTab() {
     );
   };
 
+
   // IDLE STATE — Task Selector
   if (sessionState === 'idle' || sessionState === 'setup') {
     return (
@@ -423,49 +498,64 @@ export default function ExecuteTab() {
           <p className="font-dm" style={{ color: '#8B90A0', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>
             Select Plan
           </p>
-          {activePlans && activePlans.length > 0 ? (
-            <div 
-              style={{ 
-                display: 'flex', 
-                overflowX: 'auto', 
-                gap: 10, 
-                paddingBottom: 8,
-                scrollbarWidth: 'none',
-                msOverflowStyle: 'none',
+          <div 
+            style={{ 
+              display: 'flex', 
+              overflowX: 'auto', 
+              gap: 10, 
+              paddingBottom: 8,
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none',
+            }}
+            className="no-scrollbar"
+          >
+            {/* Special button for Today's Standalone Tasks */}
+            <motion.button
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setSelectedPlanId('today-tasks')}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 12,
+                whiteSpace: 'nowrap',
+                cursor: 'pointer',
+                fontSize: 13,
+                fontWeight: 600,
+                fontFamily: 'Syne, sans-serif',
+                border: selectedPlanId === 'today-tasks' ? '1px solid rgba(245,166,35,0.35)' : '1px solid rgba(255,255,255,0.04)',
+                background: selectedPlanId === 'today-tasks' ? 'rgba(245,166,35,0.1)' : 'rgba(255,255,255,0.01)',
+                color: selectedPlanId === 'today-tasks' ? '#F5A623' : '#8B90A0',
+                transition: 'all 0.2s',
               }}
-              className="no-scrollbar"
             >
-              {activePlans.map(plan => {
-                const isActive = selectedPlanId === plan.id;
-                return (
-                  <motion.button
-                    key={plan.id}
-                    whileTap={{ scale: 0.96 }}
-                    onClick={() => setSelectedPlanId(plan.id)}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 12,
-                      whiteSpace: 'nowrap',
-                      cursor: 'pointer',
-                      fontSize: 13,
-                      fontWeight: 600,
-                      fontFamily: 'Syne, sans-serif',
-                      border: isActive ? '1px solid rgba(245,166,35,0.35)' : '1px solid rgba(255,255,255,0.04)',
-                      background: isActive ? 'rgba(245,166,35,0.1)' : 'rgba(255,255,255,0.01)',
-                      color: isActive ? '#F5A623' : '#8B90A0',
-                      transition: 'all 0.2s',
-                    }}
-                  >
-                    🎯 {plan.name}
-                  </motion.button>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="font-dm" style={{ color: '#4B5060', fontSize: 13 }}>
-              No active plans. Create one in the Plan tab.
-            </p>
-          )}
+              📋 Today's Tasks
+            </motion.button>
+
+            {activePlans && activePlans.map(plan => {
+              const isActive = selectedPlanId === plan.id;
+              return (
+                <motion.button
+                  key={plan.id}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => setSelectedPlanId(plan.id)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: 12,
+                    whiteSpace: 'nowrap',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    fontFamily: 'Syne, sans-serif',
+                    border: isActive ? '1px solid rgba(245,166,35,0.35)' : '1px solid rgba(255,255,255,0.04)',
+                    background: isActive ? 'rgba(245,166,35,0.1)' : 'rgba(255,255,255,0.01)',
+                    color: isActive ? '#F5A623' : '#8B90A0',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  🎯 {plan.name}
+                </motion.button>
+              );
+            })}
+          </div>
         </motion.div>
 
         {/* Task List */}
@@ -478,9 +568,57 @@ export default function ExecuteTab() {
           ) : (tasks || []).length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">📋</div>
-              <p className="empty-state-text">No active tasks in this plan. Add tasks in the Plan tab to start executing.</p>
+              <p className="empty-state-text">
+                {selectedPlanId === 'today-tasks' 
+                  ? "No standalone tasks for today. Add daily or one-time tasks in the Tasks tab."
+                  : "No active tasks in this plan. Add tasks in the Plan tab to start executing."
+                }
+              </p>
             </div>
+          ) : selectedPlanId === 'today-tasks' ? (
+            // Today's Standalone Tasks with 80/20 Pareto division
+            (() => {
+              const sortedTodayTasks = sortTasks(tasks || []);
+              const signalCount = Math.max(1, Math.ceil(sortedTodayTasks.length * 0.2));
+              const signalTasks = sortedTodayTasks.slice(0, signalCount);
+              const noiseTasks = sortedTodayTasks.slice(signalCount);
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  {/* Signal Tasks (Top 20%) */}
+                  {signalTasks.length > 0 && (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, paddingLeft: 4 }}>
+                        <span style={{ fontSize: 13 }}>⚡</span>
+                        <span className="font-syne font-bold text-glow-amber" style={{ fontSize: 13.5, color: '#F5A623', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          Signal Tasks (Must Do - Top 20%)
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {signalTasks.map(task => renderExecuteTaskItem(task, true, false))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Noise Tasks (Bottom 80%) */}
+                  {noiseTasks.length > 0 && (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, paddingLeft: 4 }}>
+                        <span style={{ fontSize: 13 }}>💤</span>
+                        <span className="font-syne font-bold" style={{ fontSize: 13.5, color: '#8B90A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          Noise Tasks (Later - Bottom 80%)
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {noiseTasks.map(task => renderExecuteTaskItem(task, false, true))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()
           ) : (
+            // Regular Plan Tasks
             <>
               {/* Uncategorized Tasks */}
               {uncategorizedTasks.length > 0 && (
@@ -532,6 +670,7 @@ export default function ExecuteTab() {
             </>
           )}
         </div>
+
 
         {/* Session Setup Panel */}
         <AnimatePresence>

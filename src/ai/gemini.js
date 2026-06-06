@@ -319,3 +319,25 @@ Rules: Keep it direct, crisp, and high-impact. Do not quote the user verbatim. B
 
   return await callGemini(prompt, 200, 0.7);
 };
+
+/**
+ * AI Smart-Enhancer for standalone tasks.
+ */
+export const enhanceStandaloneTask = async (title, description) => {
+  const prompt = `Analyze this task title: "${title}" and description: "${description || 'None'}".
+Refine them to be highly actionable, professional, and clear.
+Suggest a realistic estimated duration (15 to 120 minutes) and priority (p1 = critical, p2 = important, p3 = nice to have) based on the task description.
+
+Return ONLY a valid JSON object matching this schema:
+{
+  "title": "string (clear action verb title)",
+  "description": "string (clear outcome-based description)",
+  "estimatedMinutes": number,
+  "priority": "p1" | "p2" | "p3"
+}
+Do not return markdown. Do not return any text other than the JSON object.`;
+
+  const raw = await callGemini(prompt, 200, 0.6);
+  return parseJSON(raw);
+};
+

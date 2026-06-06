@@ -58,21 +58,96 @@ function MomentumCard({ score }) {
 // ─── Today Dashboard ──────────────────────────────────────────────────────────
 function TodayDashboard({ streak }) {
   const [todayStats, setTodayStats] = useState({ totalSessions: 0, totalMinutes: 0 });
-  const tasks = useLiveQuery(() => db.tasks.toArray(), [], []);
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // Live queries for deep analytics
+  const allTasks = useLiveQuery(() => db.tasks.toArray(), [], []);
+  const todaySessions = useLiveQuery(() => {
+    return db.sessions
+      .filter(s => s.startTime && s.startTime.startsWith(todayStr) && s.endTime !== null)
+      .toArray();
+  }, [], []);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
-  const todayTasks = tasks?.filter(t => {
-    if (!t.dueDate) return false;
-    return isToday(new Date(t.dueDate));
-  }) || [];
-  const p1Tasks = tasks?.filter(t => t.priority === 'p1') || [];
-  const p1Done = p1Tasks.filter(t => t.status === 'completed').length;
-
   useEffect(() => {
     getSessionStats('today').then(setTodayStats);
-  }, []);
+  }, [todaySessions]); // refresh stats when sessions update
+
+  // Priorities Completed Today
+  const completedToday = (allTasks || []).filter(t => {
+    if (t.taskType === 'daily') {
+      return t.completedDates?.includes(todayStr);
+    }
+    return t.status === 'completed' && t.updatedAt?.startsWith(todayStr);
+  });
+  const p1Completed = completedToday.filter(t => t.priority === 'p1').length;
+  const p2Completed = completedToday.filter(t => t.priority === 'p2').length;
+  const p3Completed = completedToday.filter(t => t.priority === 'p3').length;
+
+  // Focus Score Calculation (0-100)
+  const totalMinutesToday = todayStats.totalMinutes || 0;
+  const targetMinutes = 240; // Focus goal
+  const durationScore = Math.min(1, totalMinutesToday / targetMinutes) * 40;
+  
+  const completedCount = completedToday.length;
+  const taskCompletionScore = Math.min(1, completedCount / 3) * 30;
+
+  const totalBreaks = todaySessions?.reduce((sum, s) => sum + (s.breaksTaken || 0), 0) || 0;
+  const scheduledBreaks = todaySessions?.reduce((sum, s) => sum + (s.breaksScheduled || 0), 0) || 0;
+  const breakScore = scheduledBreaks > 0 
+    ? Math.min(1, totalBreaks / scheduledBreaks) * 30 
+    : 30;
+
+  const focusScore = Math.round(durationScore + taskCompletionScore + breakScore);
+
+  let scoreLabel = 'Focus building...';
+  let scoreColor = CYAN;
+  if (focusScore >= 80) {
+    scoreLabel = '🧘 Laser Focus Mode. Brilliant work!';
+    scoreColor = AMBER;
+  } else if (focusScore >= 50) {
+    scoreLabel = '💪 Solid momentum today. Keep pushing!';
+    scoreColor = '#10B981';
+  } else if (focusScore > 0) {
+    scoreLabel = '⚡ Getting started. Try a short focus block next.';
+    scoreColor = CYAN;
+  } else {
+    scoreLabel = '💤 No focus blocks recorded yet. Ready to start?';
+    scoreColor = '#8B90A0';
+  }
+
+  // Grouped task timeline sessions
+  const groupedSessions = {};
+  if (todaySessions && todaySessions.length > 0) {
+    todaySessions.forEach(s => {
+      const taskId = s.taskId || 'quick-focus';
+      if (!groupedSessions[taskId]) {
+        const matchingTask = allTasks?.find(t => t.id === s.taskId);
+        groupedSessions[taskId] = {
+          task: matchingTask || { 
+            title: s.intentionText || 'Quick Focus Session', 
+            priority: 'p2',
+            taskType: 'one-time'
+          },
+          sessions: [],
+          totalMinutes: 0
+        };
+      }
+      groupedSessions[taskId].sessions.push(s);
+      groupedSessions[taskId].totalMinutes += s.focusedMinutes || 0;
+    });
+  }
+
+  const formatTimeStr = (isoString) => {
+    if (!isoString) return '';
+    try {
+      return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return '';
+    }
+  };
 
   return (
     <div>
@@ -86,10 +161,10 @@ function TodayDashboard({ streak }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
         <div className="glass" style={{ borderRadius: 16, padding: '14px 16px', background: 'rgba(255,255,255,0.015)' }}>
           <p className="section-label" style={{ marginBottom: 6 }}>P1 Tasks</p>
-          <p className="font-syne font-bold" style={{ fontSize: 28, color: p1Done === p1Tasks.length && p1Tasks.length > 0 ? '#10B981' : AMBER }}>
-            {p1Done}<span style={{ color: '#4B5060', fontSize: 18 }}>/{p1Tasks.length}</span>
+          <p className="font-syne font-bold" style={{ fontSize: 28, color: p1Completed > 0 ? '#EF4444' : AMBER }}>
+            {p1Completed}
           </p>
-          <p className="font-dm" style={{ color: '#8B90A0', fontSize: 12, marginTop: 2 }}>done today</p>
+          <p className="font-dm" style={{ color: '#8B90A0', fontSize: 12, marginTop: 2 }}>completed today</p>
         </div>
         <div className="glass" style={{ borderRadius: 16, padding: '14px 16px', background: 'rgba(255,255,255,0.015)' }}>
           <p className="section-label" style={{ marginBottom: 6 }}>Focus Time</p>
@@ -98,6 +173,86 @@ function TodayDashboard({ streak }) {
           </p>
           <p className="font-dm" style={{ color: '#8B90A0', fontSize: 12, marginTop: 2 }}>{todayStats.totalSessions} sessions</p>
         </div>
+      </div>
+
+      {/* Focus Score (Value-add feature!) */}
+      <div className="glass-amber" style={{ borderRadius: 20, padding: 18, marginBottom: 14, border: '1px solid rgba(245,166,35,0.15)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div>
+            <p className="section-label" style={{ color: '#8B90A0', marginBottom: 4 }}>Daily Focus Score</p>
+            <p className="font-syne font-black text-glow-amber" style={{ fontSize: 32, color: AMBER }}>{focusScore} <span style={{ fontSize: 16, color: '#8B90A0', fontWeight: 500 }}>/ 100</span></p>
+          </div>
+          <ProgressRing progress={focusScore} size={54} strokeWidth={5} color={scoreColor} />
+        </div>
+        <p className="font-dm" style={{ fontSize: 12.5, color: '#F0F2F7', lineHeight: 1.5 }}>
+          {scoreLabel}
+        </p>
+      </div>
+
+      {/* Priorities Completed Details */}
+      <div className="glass" style={{ borderRadius: 20, padding: 16, marginBottom: 14, background: 'rgba(255,255,255,0.01)' }}>
+        <p className="section-label" style={{ marginBottom: 12 }}>Priorities Done Today</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1, textAlign: 'center', padding: '10px 6px', borderRadius: 12, background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)' }}>
+            <p className="font-syne font-bold" style={{ fontSize: 18, color: '#EF4444' }}>{p1Completed}</p>
+            <p className="font-dm" style={{ fontSize: 11, color: '#fca5a5', marginTop: 2 }}>🔴 Critical</p>
+          </div>
+          <div style={{ flex: 1, textAlign: 'center', padding: '10px 6px', borderRadius: 12, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+            <p className="font-syne font-bold" style={{ fontSize: 18, color: '#F59E0B' }}>{p2Completed}</p>
+            <p className="font-dm" style={{ fontSize: 11, color: '#fcd34d', marginTop: 2 }}>🟡 Important</p>
+          </div>
+          <div style={{ flex: 1, textAlign: 'center', padding: '10px 6px', borderRadius: 12, background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)' }}>
+            <p className="font-syne font-bold" style={{ fontSize: 18, color: '#10B981' }}>{p3Completed}</p>
+            <p className="font-dm" style={{ fontSize: 11, color: '#86efac', marginTop: 2 }}>🟢 Nice-to-Have</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Execution Timeline (Timing of executed tasks) */}
+      <div className="glass" style={{ borderRadius: 20, padding: 16, marginBottom: 14, background: 'rgba(255,255,255,0.01)' }}>
+        <p className="section-label" style={{ marginBottom: 12 }}>Today's Execution Timeline</p>
+        {Object.keys(groupedSessions).length === 0 ? (
+          <p className="font-dm" style={{ color: '#4B5060', fontSize: 12.5, textAlign: 'center', padding: '10px 0' }}>
+            No task executions logged today.
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {Object.entries(groupedSessions).map(([taskId, group]) => (
+              <div key={taskId} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', paddingBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <span style={{ fontSize: 12 }}>⚡</span>
+                    <p className="font-dm font-semibold" style={{ fontSize: 13, color: '#F0F2F7', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {group.task.title}
+                    </p>
+                  </div>
+                  <span className="font-syne font-bold" style={{ fontSize: 12, color: AMBER, flexShrink: 0 }}>
+                    {group.totalMinutes}m spent
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                  <PriorityBadge priority={group.task.priority || 'p2'} showLabel={false} />
+                  {!group.task.planId && (
+                    <span className="chip" style={{ background: 'rgba(255,255,255,0.03)', color: '#8B90A0', fontSize: 9 }}>
+                      {group.task.taskType === 'daily' ? '🔄 Daily' : '🎯 One-time'}
+                    </span>
+                  )}
+                </div>
+
+                {/* Session Slots */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 18 }}>
+                  {group.sessions.map((s, idx) => (
+                    <div key={s.id || idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8B90A0' }}>
+                      <span className="font-dm">Session {idx + 1}: {formatTimeStr(s.startTime)} - {formatTimeStr(s.endTime)}</span>
+                      <span className="font-dm" style={{ color: CYAN }}>{s.focusedMinutes}m</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Streak */}
